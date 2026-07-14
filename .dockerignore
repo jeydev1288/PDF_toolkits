@@ -1,0 +1,9 @@
+.git
+.next
+.next-production
+node_modules
+npm-debug.log*
+.env*
+tmp
+out
+*.md

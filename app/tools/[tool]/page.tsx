@@ -1,0 +1,29 @@
+import { notFound } from "next/navigation";
+import { AppShell } from "@/components/AppShell";
+import { ToolWorkspace } from "./tool-workspace";
+import { getToolByRouteSegment, tools } from "@/config/tools";
+
+export function generateStaticParams() {
+  return tools.map((tool) => ({ tool: tool.route.split("/").at(-1) }));
+}
+
+export default async function ToolPage({
+  params
+}: {
+  params: Promise<{ tool: string }>;
+}) {
+  const { tool: toolId } = await params;
+  const tool = getToolByRouteSegment(toolId);
+
+  if (!tool) {
+    notFound();
+  }
+
+  const { icon: _icon, ...serializableTool } = tool;
+
+  return (
+    <AppShell>
+      <ToolWorkspace tool={serializableTool} />
+    </AppShell>
+  );
+}
