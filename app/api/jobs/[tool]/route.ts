@@ -3,6 +3,7 @@ import { getToolByProcessorId, type ProcessorId } from "@/config/tools";
 import { processPdfJob } from "@/lib/pdf/processPdfJob";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_FILE_COUNT = 20;
