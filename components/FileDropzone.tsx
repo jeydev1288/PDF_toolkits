@@ -15,6 +15,8 @@ type FileDropzoneProps = {
   showFileList?: boolean;
 };
 
+const MAX_TOTAL_FILE_SIZE = 4 * 1024 * 1024;
+
 export function FileDropzone({
   accept,
   multiple,
@@ -41,6 +43,12 @@ export function FileDropzone({
             ) === index
         )
       : acceptedFiles.slice(0, 1);
+
+    const totalSize = nextFiles.reduce((total, file) => total + file.size, 0);
+    if (totalSize > MAX_TOTAL_FILE_SIZE) {
+      setValidationError("한 번에 업로드할 수 있는 전체 파일 크기는 4MB까지입니다.");
+      return;
+    }
 
     if (acceptedFiles.length !== selectedFiles.length) {
       setValidationError("지원하지 않는 형식의 파일은 제외되었습니다.");
@@ -85,7 +93,7 @@ export function FileDropzone({
             <UploadCloud size={26} aria-hidden="true" />
           </span>
           <strong>{title}</strong>
-          <span>{description ?? getAcceptedFileDescription(accept)}</span>
+          <span>{description ?? `${getAcceptedFileDescription(accept)} · 최대 4MB`}</span>
           <span className="dropzone-button">파일 선택</span>
         </span>
       </label>

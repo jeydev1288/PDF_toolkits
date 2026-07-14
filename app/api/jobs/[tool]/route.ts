@@ -4,7 +4,7 @@ import { processPdfJob } from "@/lib/pdf/processPdfJob";
 
 export const runtime = "nodejs";
 
-const MAX_REQUEST_BYTES = 50 * 1024 * 1024;
+const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_FILE_COUNT = 20;
 
 export async function POST(
@@ -21,7 +21,7 @@ export async function POST(
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > MAX_REQUEST_BYTES) {
     return NextResponse.json(
-      { error: "한 번에 업로드할 수 있는 전체 파일 크기는 50MB까지입니다." },
+      { error: "한 번에 업로드할 수 있는 전체 파일 크기는 4MB까지입니다." },
       { status: 413 }
     );
   }
@@ -45,7 +45,7 @@ export async function POST(
   const totalFileSize = files.reduce((total, file) => total + file.size, 0);
   if (totalFileSize > MAX_REQUEST_BYTES) {
     return NextResponse.json(
-      { error: "한 번에 업로드할 수 있는 전체 파일 크기는 50MB까지입니다." },
+      { error: "한 번에 업로드할 수 있는 전체 파일 크기는 4MB까지입니다." },
       { status: 413 }
     );
   }

@@ -1,9 +1,7 @@
-import { spawn } from "node:child_process";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 import JSZip from "jszip";
 import { PDFDocument, degrees } from "pdf-lib";
+import { pdf as renderPdf } from "pdf-to-img";
 import type { ProcessorId } from "@/config/tools";
 
 type UploadedFile = {
@@ -203,37 +201,23 @@ async function pdfFileToImages(
   options: Record<string, FormDataEntryValue>
 ): Promise<ProcessPdfJobResult> {
   assertPdfFiles([file]);
-  const sourcePdf = await PDFDocument.load(file.buffer);
-  const pages = parsePageSelection(
-    String(options.pageRange ?? ""),
-    sourcePdf.getPageCount(),
-    true
-  );
   const format = String(options.imageFormat ?? "png") === "jpg" ? "jpg" : "png";
   const quality = Math.min(100, Math.max(1, Number(options.imageQuality ?? 90)));
-  const workDirectory = await mkdtemp(join(tmpdir(), "pdf-toolkit-"));
-  const inputPath = join(workDirectory, "input.pdf");
+  const scale = quality >= 100 ? 2.5 : quality >= 90 ? 2 : 1.5;
+  const document = await renderPdf(file.buffer, { scale });
+  const pages = parsePageSelection(
+    String(options.pageRange ?? ""),
+    document.length,
+    true
+  );
   const zip = new JSZip();
 
   try {
-    await writeFile(inputPath, file.buffer);
-
     for (const pageNumber of pages) {
-      const outputPrefix = join(workDirectory, `page-${pageNumber}`);
-      const args = [
-        "-f",
-        String(pageNumber),
-        "-l",
-        String(pageNumber),
-        "-singlefile",
-        format === "jpg" ? "-jpeg" : "-png"
-      ];
-      if (format === "jpg") args.push("-jpegopt", `quality=${quality}`);
-      args.push(inputPath, outputPrefix);
-
-      await runPdfToPpm(args);
-      const outputPath = `${outputPrefix}.${format === "jpg" ? "jpg" : "png"}`;
-      zip.file(`page-${pageNumber}.${format}`, await readFile(outputPath));
+      const pngBuffer = await document.getPage(pageNumber);
+      const imageBuffer =
+        format === "jpg" ? await convertPngToJpg(pngBuffer, quality) : pngBuffer;
+      zip.file(`page-${pageNumber}.${format}`, imageBuffer);
     }
 
     return {
@@ -242,56 +226,18 @@ async function pdfFileToImages(
       contentType: "application/zip"
     };
   } finally {
-    await rm(workDirectory, { recursive: true, force: true });
+    await document.destroy();
   }
 }
 
-async function runPdfToPpm(args: string[]) {
-  const command = await resolvePdfToPpmCommand();
-
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, {
-      shell: false,
-      windowsHide: true,
-      stdio: ["ignore", "ignore", "pipe"]
-    });
-    let stderr = "";
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", () => reject(new Error("PDF 이미지 변환 엔진을 실행할 수 없습니다.")));
-    child.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(stderr.trim() || "PDF 페이지를 이미지로 변환하지 못했습니다."));
-    });
-  });
-}
-
-async function resolvePdfToPpmCommand() {
-  if (process.env.PDFTOPPM_PATH) return process.env.PDFTOPPM_PATH;
-  if (process.platform !== "win32") return "pdftoppm";
-
-  const bundledRuntimePath = join(
-    homedir(),
-    ".cache",
-    "codex-runtimes",
-    "codex-primary-runtime",
-    "dependencies",
-    "native",
-    "poppler",
-    "Library",
-    "bin",
-    "pdftoppm.exe"
-  );
-
-  try {
-    await access(bundledRuntimePath);
-    return bundledRuntimePath;
-  } catch {
-    throw new Error(
-      "PDF 이미지 변환 엔진을 찾을 수 없습니다. PDFTOPPM_PATH 환경 변수를 설정해 주세요."
-    );
-  }
+async function convertPngToJpg(pngBuffer: Buffer, quality: number) {
+  const image = await loadImage(pngBuffer);
+  const canvas = createCanvas(image.width, image.height);
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, image.width, image.height);
+  context.drawImage(image, 0, 0);
+  return canvas.toBuffer("image/jpeg", quality);
 }
 
 async function embedImage(pdf: PDFDocument, file: UploadedFile) {
