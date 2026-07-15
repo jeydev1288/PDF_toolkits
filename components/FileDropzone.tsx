@@ -3,6 +3,7 @@
 import { UploadCloud } from "lucide-react";
 import { useState } from "react";
 import { UploadedFileCard } from "@/components/UploadedFileCard";
+import { MAX_FILE_BYTES, MAX_TOTAL_BYTES, formatMegabytes } from "@/config/site";
 
 type FileDropzoneProps = {
   accept: string;
@@ -13,9 +14,8 @@ type FileDropzoneProps = {
   title?: string;
   description?: string;
   showFileList?: boolean;
+  maxFiles: number;
 };
-
-const MAX_TOTAL_FILE_SIZE = 4 * 1024 * 1024;
 
 export function FileDropzone({
   accept,
@@ -25,7 +25,8 @@ export function FileDropzone({
   variant = "default",
   title = "파일을 선택하거나 여기에 끌어다 놓으세요",
   description,
-  showFileList = true
+  showFileList = true,
+  maxFiles
 }: FileDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -44,9 +45,18 @@ export function FileDropzone({
         )
       : acceptedFiles.slice(0, 1);
 
+    const oversizedFile = acceptedFiles.find((file) => file.size > MAX_FILE_BYTES);
+    if (oversizedFile) {
+      setValidationError(`개별 파일은 ${formatMegabytes(MAX_FILE_BYTES)}까지 선택할 수 있습니다.`);
+      return;
+    }
+    if (nextFiles.length > maxFiles) {
+      setValidationError(`이 도구는 한 번에 최대 ${maxFiles}개 파일까지 처리할 수 있습니다.`);
+      return;
+    }
     const totalSize = nextFiles.reduce((total, file) => total + file.size, 0);
-    if (totalSize > MAX_TOTAL_FILE_SIZE) {
-      setValidationError("한 번에 업로드할 수 있는 전체 파일 크기는 4MB까지입니다.");
+    if (totalSize > MAX_TOTAL_BYTES) {
+      setValidationError(`한 작업의 전체 파일 크기는 ${formatMegabytes(MAX_TOTAL_BYTES)}까지입니다.`);
       return;
     }
 
@@ -93,7 +103,7 @@ export function FileDropzone({
             <UploadCloud size={26} aria-hidden="true" />
           </span>
           <strong>{title}</strong>
-          <span>{description ?? `${getAcceptedFileDescription(accept)} · 최대 4MB`}</span>
+          <span>{description ?? `${getAcceptedFileDescription(accept)} · 파일당 ${formatMegabytes(MAX_FILE_BYTES)} · 전체 ${formatMegabytes(MAX_TOTAL_BYTES)}`}</span>
           <span className="dropzone-button">파일 선택</span>
         </span>
       </label>

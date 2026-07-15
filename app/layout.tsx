@@ -1,13 +1,20 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { SITE_NAME } from "@/config/site";
 
 export const metadata: Metadata = {
-  title: "PDF Toolkit",
-  description: "PDF를 합치고, 나누고, 변환하고, 페이지를 정리하는 도구입니다.",
-  applicationName: "PDF Toolkit",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://pdftoolkit.kr"),
+  title: {
+    default: "무료 PDF 도구 – 합치기, 나누기, 변환",
+    template: `%s | ${SITE_NAME}`
+  },
+  description: "PDF 병합, 분할, 페이지 순서 변경과 이미지 변환을 설치 없이 무료로 처리하세요.",
+  applicationName: SITE_NAME,
+  alternates: { canonical: "/" },
+  robots: { index: true, follow: true },
   appleWebApp: {
     capable: true,
-    title: "PDF Toolkit",
+    title: SITE_NAME,
     statusBarStyle: "default"
   },
   formatDetection: {

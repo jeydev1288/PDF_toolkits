@@ -11,10 +11,10 @@ import { ToolOptionPanel, ToolRunButton } from "@/components/ToolOptionPanel";
 import { ToolPageLayout } from "@/components/ToolPageLayout";
 import { UploadedFileCard } from "@/components/UploadedFileCard";
 import type { ToolConfig, ToolId } from "@/config/tools";
+import { processPdfJobInBrowser } from "@/lib/client/processPdfJob";
 
 type ClientToolConfig = Omit<ToolConfig, "icon">;
 type ResultState = { url: string; fileName: string };
-const RECENT_TOOLS_KEY = "pdf-toolkit:recent-tools";
 
 export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
   const [files, setFiles] = useState<File[]>([]);
@@ -26,8 +26,6 @@ export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
   const [options, setOptions] = useState<Record<string, string>>(() =>
     Object.fromEntries((tool.options ?? []).map((option) => [option.id, option.defaultValue]))
   );
-
-  useEffect(() => recordRecentTool(tool.id), [tool.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,36 +118,17 @@ export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
     setProgress(20);
 
     try {
-      const formData = new FormData();
-      files.forEach((file) => formData.append("files", file));
-      Object.entries(options).forEach(([key, value]) => formData.append(key, value));
+      const jobOptions = { ...options };
       if (tool.id === "organize-pdf") {
-        formData.append(
-          "pagePlan",
-          JSON.stringify(
-            pages.map(({ pageNumber, rotation, deleted }) => ({ pageNumber, rotation, deleted }))
-          )
-        );
+        jobOptions.pagePlan = JSON.stringify(pages.map(({ pageNumber, rotation, deleted }) => ({ pageNumber, rotation, deleted })));
       }
 
       setProgress(55);
-      const response = await fetch(`/api/jobs/${tool.processorId}`, {
-        method: "POST",
-        body: formData
-      });
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(payload?.error ?? "작업 처리 중 문제가 발생했습니다.");
-      }
-
+      const processed = await processPdfJobInBrowser({ tool: tool.processorId, files, options: jobOptions });
       setProgress(88);
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const disposition = response.headers.get("content-disposition");
-      const fileName = getFileNameFromHeader(disposition) ?? tool.outputName;
+      const url = URL.createObjectURL(processed.blob);
 
-      setResult({ url, fileName });
+      setResult({ url, fileName: processed.fileName });
       setProgress(100);
     } catch (jobError) {
       setProgress(0);
@@ -194,6 +173,7 @@ export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
         <FileDropzone
           accept={tool.acceptedFileTypes.join(",")}
           multiple={tool.multiple}
+          maxFiles={tool.maxFiles}
           files={files}
           onFilesSelected={updateFiles}
           showFileList={false}
@@ -253,20 +233,4 @@ export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
 function getActionLabel(tool: ClientToolConfig, fileCount: number) {
   if (tool.id === "merge-pdf" && fileCount > 0) return `PDF ${fileCount}개 합치기`;
   return tool.primaryAction;
-}
-
-function recordRecentTool(toolId: ToolId) {
-  try {
-    const current = JSON.parse(localStorage.getItem(RECENT_TOOLS_KEY) ?? "[]") as string[];
-    const next = [toolId, ...current.filter((id) => id !== toolId)].slice(0, 4);
-    localStorage.setItem(RECENT_TOOLS_KEY, JSON.stringify(next));
-    window.dispatchEvent(new Event("pdf-toolkit:recent-updated"));
-  } catch {
-    // Recent tools are optional and should not block PDF work.
-  }
-}
-
-function getFileNameFromHeader(header: string | null) {
-  if (!header) return null;
-  return header.match(/filename="(.+)"/)?.[1] ?? null;
 }

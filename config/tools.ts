@@ -47,6 +47,9 @@ export type ToolConfig = {
   multiple: boolean;
   outputName: string;
   primaryAction: string;
+  seoTitle: string;
+  seoDescription: string;
+  maxFiles: number;
   options?: ToolOption[];
 };
 
@@ -66,7 +69,10 @@ export const tools: ToolConfig[] = [
     processorId: "merge",
     multiple: true,
     outputName: "merged.pdf",
-    primaryAction: "PDF 합치기"
+    primaryAction: "PDF 합치기",
+    seoTitle: "PDF 합치기 – 여러 PDF 파일 무료 병합",
+    seoDescription: "여러 PDF 파일을 원하는 순서대로 하나의 PDF로 무료 병합하세요. 설치 없이 브라우저에서 안전하게 처리합니다.",
+    maxFiles: 20
   },
   {
     id: "split-pdf",
@@ -82,6 +88,9 @@ export const tools: ToolConfig[] = [
     multiple: false,
     outputName: "split-pages.zip",
     primaryAction: "PDF 나누기",
+    seoTitle: "PDF 나누기 – 페이지별 PDF 무료 분할",
+    seoDescription: "PDF를 페이지별 또는 원하는 범위별로 무료 분할하고 필요한 페이지만 추출하세요.",
+    maxFiles: 1,
     options: [
       {
         id: "splitMode",
@@ -116,7 +125,10 @@ export const tools: ToolConfig[] = [
     processorId: "reorder-pages",
     multiple: false,
     outputName: "organized.pdf",
-    primaryAction: "정리한 PDF 저장"
+    primaryAction: "정리한 PDF 저장",
+    seoTitle: "PDF 페이지 순서 변경·회전·삭제",
+    seoDescription: "PDF 페이지 순서를 바꾸고 회전하거나 불필요한 페이지를 삭제한 뒤 새 PDF로 저장하세요.",
+    maxFiles: 1
   },
   {
     id: "pdf-to-image",
@@ -126,12 +138,15 @@ export const tools: ToolConfig[] = [
     category: "변환",
     route: "/tools/pdf-to-image",
     icon: FileImage,
-    featured: true,
+    featured: false,
     acceptedFileTypes: ["application/pdf"],
     processorId: "pdf-to-image",
     multiple: false,
     outputName: "pdf-images.zip",
     primaryAction: "이미지로 변환",
+    seoTitle: "PDF를 JPG·PNG 이미지로 변환",
+    seoDescription: "PDF 페이지를 고화질 JPG 또는 PNG 이미지로 무료 변환하세요. 페이지 범위와 품질을 선택할 수 있습니다.",
+    maxFiles: 1,
     options: [
       {
         id: "imageFormat",
@@ -177,6 +192,9 @@ export const tools: ToolConfig[] = [
     multiple: true,
     outputName: "images.pdf",
     primaryAction: "PDF 만들기",
+    seoTitle: "JPG·PNG 이미지를 PDF로 변환",
+    seoDescription: "여러 JPG·PNG 이미지를 원하는 순서대로 하나의 PDF 파일로 무료 변환하세요.",
+    maxFiles: 30,
     options: [
       {
         id: "pageSize",
@@ -226,7 +244,10 @@ export const tools: ToolConfig[] = [
     processorId: "compress",
     multiple: false,
     outputName: "resaved.pdf",
-    primaryAction: "새 PDF로 저장"
+    primaryAction: "새 PDF로 저장",
+    seoTitle: "열리지 않는 PDF 다시 저장하기",
+    seoDescription: "열리지 않거나 호환 문제가 있는 PDF를 새 PDF 파일로 다시 저장해 보세요.",
+    maxFiles: 1
   }
 ];
 
