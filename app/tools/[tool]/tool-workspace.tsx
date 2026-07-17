@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ErrorState } from "@/components/ErrorState";
+import { AnalyticsEvent } from "@/components/AnalyticsEvent";
 import { FileDropzone } from "@/components/FileDropzone";
 import { PageOrganizer, type OrganizedPage } from "@/components/PageOrganizer";
-import { ProcessingProgress } from "@/components/ProcessingProgress";
+import { ProcessingProgress, type ProcessingStage } from "@/components/ProcessingProgress";
 import { RelatedTools } from "@/components/RelatedTools";
 import { ResultCard } from "@/components/ResultCard";
 import { ToolOptionPanel, ToolRunButton } from "@/components/ToolOptionPanel";
@@ -12,6 +13,7 @@ import { ToolPageLayout } from "@/components/ToolPageLayout";
 import { UploadedFileCard } from "@/components/UploadedFileCard";
 import type { ToolConfig, ToolId } from "@/config/tools";
 import { processPdfJobInBrowser } from "@/lib/client/processPdfJob";
+import { trackEvent } from "@/lib/analytics";
 
 type ClientToolConfig = Omit<ToolConfig, "icon">;
 type ResultState = { url: string; fileName: string };
@@ -19,7 +21,7 @@ type ResultState = { url: string; fileName: string };
 export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
   const [files, setFiles] = useState<File[]>([]);
   const [pages, setPages] = useState<OrganizedPage[]>([]);
-  const [progress, setProgress] = useState(0);
+  const [processingStage, setProcessingStage] = useState<ProcessingStage | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<ResultState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +52,10 @@ export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
           }))
         );
       } catch {
-        if (!cancelled) setError("PDF 페이지 정보를 읽을 수 없습니다.");
+        if (!cancelled) {
+          setError("PDF 페이지 정보를 읽을 수 없습니다.");
+          trackEvent("error_occurred", tool.id);
+        }
       }
     }
 
@@ -85,7 +90,7 @@ export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
     if (result?.url) URL.revokeObjectURL(result.url);
     setResult(null);
     setError(null);
-    setProgress(0);
+    setProcessingStage(null);
   }
 
   function updateFiles(selectedFiles: File[]) {
@@ -115,24 +120,29 @@ export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
     setIsProcessing(true);
     setError(null);
     setResult(null);
-    setProgress(20);
+    setProcessingStage("uploading");
 
     try {
+      await waitForNextPaint();
       const jobOptions = { ...options };
       if (tool.id === "organize-pdf") {
         jobOptions.pagePlan = JSON.stringify(pages.map(({ pageNumber, rotation, deleted }) => ({ pageNumber, rotation, deleted })));
       }
 
-      setProgress(55);
+      setProcessingStage("processing");
+      await waitForNextPaint();
       const processed = await processPdfJobInBrowser({ tool: tool.processorId, files, options: jobOptions });
-      setProgress(88);
+      setProcessingStage("preparing");
+      await waitForNextPaint();
       const url = URL.createObjectURL(processed.blob);
 
       setResult({ url, fileName: processed.fileName });
-      setProgress(100);
+      setProcessingStage("success");
+      trackEvent("processing_succeeded", tool.id);
     } catch (jobError) {
-      setProgress(0);
+      setProcessingStage(null);
       setError(jobError instanceof Error ? jobError.message : "알 수 없는 오류가 발생했습니다.");
+      trackEvent("error_occurred", tool.id);
     } finally {
       setIsProcessing(false);
     }
@@ -149,6 +159,7 @@ export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
 
   return (
     <div className="tool-flow">
+      <AnalyticsEvent event="tool_opened" tool={tool.id} />
       <ToolPageLayout
         title={tool.name}
         description={tool.description}
@@ -178,6 +189,9 @@ export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
           onFilesSelected={updateFiles}
           showFileList={false}
           title={files.length > 0 && tool.multiple ? "파일 더 추가" : undefined}
+          onUploadStarted={() => trackEvent("upload_started", tool.id)}
+          onUploadCompleted={() => trackEvent("upload_completed", tool.id)}
+          onUploadError={() => trackEvent("error_occurred", tool.id)}
         />
 
         {files.length > 0 ? (
@@ -220,14 +234,25 @@ export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
           </p>
         ) : null}
 
-        {progress > 0 ? <ProcessingProgress value={progress} /> : null}
-        {result ? <ResultCard url={result.url} fileName={result.fileName} onStartOver={startOver} /> : null}
+        {processingStage ? <ProcessingProgress stage={processingStage} /> : null}
+        {result ? (
+          <ResultCard
+            url={result.url}
+            fileName={result.fileName}
+            onStartOver={startOver}
+            onDownload={() => trackEvent("download_clicked", tool.id)}
+          />
+        ) : null}
         {error ? <ErrorState message={error} onRetry={canSubmit ? runJob : undefined} /> : null}
       </ToolPageLayout>
 
-      <RelatedTools toolId={tool.id as ToolId} />
+      {result ? <RelatedTools toolId={tool.id as ToolId} /> : null}
     </div>
   );
+}
+
+function waitForNextPaint() {
+  return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 }
 
 function getActionLabel(tool: ClientToolConfig, fileCount: number) {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileText, Home, LayoutGrid, MessageSquareText, ShieldCheck } from "lucide-react";
+import { CircleUserRound, FileText, Home, LayoutGrid, MessageSquareText, ShieldCheck } from "lucide-react";
 import { tools } from "@/config/tools";
 
 const mobileNavigation = [
@@ -22,7 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="sidebar-navigation">
           <div className="sidebar-group"><SidebarLink href="/" label="홈" icon={Home} pathname={pathname} /></div>
           <div className="sidebar-group"><span className="sidebar-group-label">PDF 도구</span>{tools.map((tool) => <SidebarLink key={tool.id} href={tool.route} label={tool.name} icon={tool.icon} pathname={pathname} />)}</div>
-          <div className="sidebar-group sidebar-utility-group"><SidebarLink href="/privacy" label="개인정보 처리 안내" icon={ShieldCheck} pathname={pathname} /><SidebarLink href="/contact" label="오류 제보·기능 요청" icon={MessageSquareText} pathname={pathname} /></div>
+          <div className="sidebar-group sidebar-utility-group"><SidebarLink href="/about" label="서비스 소개" icon={CircleUserRound} pathname={pathname} /><SidebarLink href="/privacy" label="개인정보 처리 안내" icon={ShieldCheck} pathname={pathname} /><SidebarLink href="/contact" label="오류 제보·기능 요청" icon={MessageSquareText} pathname={pathname} /></div>
         </nav>
       </aside>
 
@@ -33,7 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
       <main className="shell-main"><div className="workspace">{children}</div></main>
-      <footer className="site-footer"><span>© {new Date().getFullYear()} PDF Toolkit</span><nav aria-label="정책 링크"><Link href="/privacy">개인정보 처리 안내</Link><Link href="/terms">이용약관</Link><Link href="/contact">문의</Link></nav></footer>
+      <footer className="site-footer"><span>© {new Date().getFullYear()} PDF Toolkit</span><nav aria-label="정책 링크"><Link href="/about">서비스 소개</Link><Link href="/privacy">개인정보 처리 안내</Link><Link href="/terms">이용약관</Link><Link href="/contact">문의</Link></nav></footer>
       <Link href="/contact#feedback" className="floating-feedback"><MessageSquareText size={18} aria-hidden="true" /><span>피드백</span></Link>
 
       <nav className="bottom-nav" aria-label="모바일 주요 내비게이션">{mobileNavigation.map((item) => { const Icon = item.icon; const isActive = getIsActive(item.href, pathname); return <Link key={item.href} href={item.href} className={isActive ? "is-active" : undefined} aria-current={isActive ? "page" : undefined}><Icon size={19} aria-hidden="true" /><span>{item.label}</span></Link>; })}</nav>

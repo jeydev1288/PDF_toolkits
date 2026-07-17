@@ -1,7 +1,6 @@
 import Link from "next/link";
 import {
   ArrowRight,
-  Check,
   FileCheck2,
   Gauge,
   LockKeyhole,
@@ -10,6 +9,8 @@ import {
   Sparkles
 } from "lucide-react";
 import { ToolCard } from "@/components/ToolCard";
+import { AnalyticsEvent } from "@/components/AnalyticsEvent";
+import { WorkflowSteps } from "@/components/WorkflowSteps";
 import { toolCategories, tools } from "@/config/tools";
 
 const advantages = [
@@ -32,20 +33,20 @@ export function HomeDashboard() {
 
   return (
     <div className="sales-home">
+      <AnalyticsEvent event="homepage_viewed" />
       <section className="sales-hero" aria-labelledby="home-title">
         <div className="hero-copy">
           <p className="eyebrow">무료 온라인 PDF 도구</p>
           <h1 id="home-title">필요한 PDF 작업을 한곳에서 해결하세요</h1>
           <p className="hero-lead">PDF 병합, 분할, 페이지 순서 변경과 이미지 변환을 설치 없이 처리하세요.</p>
-          <p className="hero-support">복잡한 프로그램 없이 파일을 선택하고 원하는 작업만 실행하면 됩니다.</p>
+          <p className="hero-support">파일은 기기 밖으로 나가지 않습니다. 원하는 작업을 선택하고 몇 번의 클릭으로 결과를 받으세요.</p>
           <div className="hero-actions">
             <Link className="primary-link" href="/tools/merge-pdf">무료로 PDF 합치기 <ArrowRight size={18} aria-hidden="true" /></Link>
             <Link className="secondary-link" href="#all-tools">모든 도구 보기</Link>
           </div>
-          <ul className="hero-trust" aria-label="서비스 특징">
-            {["설치 필요 없음", "모바일·PC 지원", "처리 완료 후 파일을 보관하지 않음"].map((item) => (
-              <li key={item}><Check size={17} aria-hidden="true" />{item}</li>
-            ))}
+          <WorkflowSteps />
+          <ul className="hero-trust" aria-label="서비스 신뢰 배지">
+            {["No Signup", "Fast", "Secure", "Privacy First"].map((item) => <li key={item}>{item}</li>)}
           </ul>
         </div>
         <div className="hero-visual" aria-hidden="true">
