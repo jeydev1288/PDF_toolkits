@@ -22,6 +22,10 @@ export function trackEvent(event: AnalyticsEventName, tool?: ToolId) {
 
   window.dispatchEvent(new CustomEvent("pdf-toolkit:analytics", { detail: payload }));
 
+  // The static desktop bundle has no Next.js server runtime. Keep local events
+  // available to the UI, but never attempt a request to a non-existent API.
+  if ("__TAURI_INTERNALS__" in window) return;
+
   if (navigator.sendBeacon) {
     navigator.sendBeacon("/api/analytics", new Blob([body], { type: "application/json" }));
     return;

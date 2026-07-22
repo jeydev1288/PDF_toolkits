@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { SITE_NAME } from "@/config/site";
+import { ExternalLinkGuard } from "@/components/ExternalLinkGuard";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://pdftoolkit.kr"),
@@ -37,7 +38,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body><ExternalLinkGuard />{children}</body>
     </html>
   );
 }

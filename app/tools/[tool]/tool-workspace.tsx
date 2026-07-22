@@ -53,7 +53,7 @@ export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
         );
       } catch {
         if (!cancelled) {
-          setError("PDF 페이지 정보를 읽을 수 없습니다.");
+          setError("PDF 페이지 정보를 읽을 수 없습니다. 파일이 손상되었거나 암호화되었는지 확인해 주세요.");
           trackEvent("error_occurred", tool.id);
         }
       }
@@ -141,7 +141,7 @@ export function ToolWorkspace({ tool }: { tool: ClientToolConfig }) {
       trackEvent("processing_succeeded", tool.id);
     } catch (jobError) {
       setProcessingStage(null);
-      setError(jobError instanceof Error ? jobError.message : "알 수 없는 오류가 발생했습니다.");
+      setError(getFriendlyProcessingError(jobError));
       trackEvent("error_occurred", tool.id);
     } finally {
       setIsProcessing(false);
@@ -258,4 +258,27 @@ function waitForNextPaint() {
 function getActionLabel(tool: ClientToolConfig, fileCount: number) {
   if (tool.id === "merge-pdf" && fileCount > 0) return `PDF ${fileCount}개 합치기`;
   return tool.primaryAction;
+}
+
+function getFriendlyProcessingError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return "파일을 처리하지 못했습니다. 원본 파일을 확인한 뒤 다시 시도해 주세요.";
+  }
+
+  const normalizedMessage = error.message.toLowerCase();
+  if (normalizedMessage.includes("encrypted") || normalizedMessage.includes("password")) {
+    return "암호로 보호된 PDF는 처리할 수 없습니다. 암호 보호를 해제한 파일로 다시 시도해 주세요.";
+  }
+  if (
+    normalizedMessage.includes("invalid pdf") ||
+    normalizedMessage.includes("failed to parse") ||
+    normalizedMessage.includes("no pdf header")
+  ) {
+    return "유효한 PDF 파일을 읽을 수 없습니다. 파일이 손상되지 않았는지 확인해 주세요.";
+  }
+  if (normalizedMessage.includes("memory") || normalizedMessage.includes("allocation")) {
+    return "기기 메모리가 부족해 작업을 완료하지 못했습니다. 더 작은 파일이나 더 적은 페이지로 다시 시도해 주세요.";
+  }
+
+  return error.message || "파일 처리 중 오류가 발생했습니다. 다시 시도해 주세요.";
 }

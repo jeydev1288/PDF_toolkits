@@ -1,0 +1,689 @@
+PDF Toolkit Day 3 데스크톱 앱 인수인계 문서
+작성일: 2026-07-22
+프로젝트 경로: C:\Users\박주아\Desktop\PDF toolkit
+현재 앱 버전: 0.1.0
+
+이 문서는 Day 3 최종 보고의 1번(아키텍처), 2번(주요 구현), 6번(공개 배포 전 남은 작업), 7번(위험 및 제한)을 다음 작업자가 바로 이해하고 실행할 수 있도록 구체화한 것이다.
+
+======================================================================
+1. 선택한 아키텍처와 선택 이유
+======================================================================
+
+1-1. 기존 웹 애플리케이션 구조
+
+- 패키지 관리자: npm
+- 프레임워크: Next.js 15 App Router
+- UI: React 18 + TypeScript
+- PDF 관련 라이브러리:
+  - pdf-lib: PDF 병합, 분할, 페이지 복사, 회전, 다시 저장, 이미지 삽입
+  - pdfjs-dist: PDF 페이지 렌더링 및 PDF → 이미지 변환
+  - JSZip: 분리된 PDF 및 변환 이미지를 ZIP 파일로 묶기
+- 주요 PDF 처리 진입점:
+  - lib/client/processPdfJob.ts
+  - app/tools/[tool]/tool-workspace.tsx
+- PDF 파일은 처리 서버로 업로드되지 않는다.
+- File, Blob, ArrayBuffer, Canvas, URL.createObjectURL 같은 브라우저 API로 현재 기기 메모리에서 처리한다.
+- 서버 Route Handler는 PDF 처리에 사용되지 않는다.
+- 웹 전용 서버 Route Handler:
+  - app/api/analytics/route.web.ts: 개인정보를 포함하지 않는 제품 이벤트 기록
+  - app/api/health/route.web.ts: 웹 서비스 상태 확인
+
+1-2. 데스크톱 아키텍처
+
+- 선택: Tauri v2
+- 선택하지 않은 방식: Electron, 별도 Node.js 서버 번들, 원격 웹사이트만 표시하는 데스크톱 셸
+- Tauri를 선택한 이유:
+  1. 기존 PDF 기능이 브라우저 안에서 동작하므로 Windows WebView2에서도 같은 코드를 재사용할 수 있다.
+  2. PDF 처리용 Node.js 백엔드나 Next.js 서버 런타임을 데스크톱 앱에 포함할 필요가 없다.
+  3. Electron보다 설치 파일과 런타임 크기를 작게 유지할 수 있다.
+  4. 기존 웹 애플리케이션은 그대로 유지하면서 데스크톱 빌드만 정적으로 분리할 수 있다.
+  5. 사용자 파일이나 비밀 환경 변수를 Rust 명령으로 전달할 필요가 없다.
+
+1-3. 웹 빌드와 데스크톱 빌드의 분리 방식
+
+- 일반 웹 빌드:
+  - 명령어: npm run build
+  - Next.js 서버 Route Handler를 포함한다.
+  - 분석 이벤트 POST API와 health API를 유지한다.
+- 데스크톱 프런트엔드 빌드:
+  - 명령어: npm run desktop:frontend
+  - 내부적으로 DESKTOP_BUILD=1 next build --no-lint를 실행한다.
+  - next.config.mjs에서 output: "export"가 활성화된다.
+  - trailingSlash가 활성화되어 Tauri 로컬 자산 경로에서 내부 탐색이 동작한다.
+  - 결과 디렉터리: out
+- Tauri 프로덕션 빌드:
+  - 명령어: npm run desktop:build
+  - Tauri가 먼저 npm run desktop:frontend를 실행한다.
+  - 생성된 out 디렉터리를 Windows 앱에 포함한다.
+
+1-4. 웹 전용 Route Handler 분리
+
+- Next.js 정적 내보내기는 POST Route Handler를 지원하지 않는다.
+- 그래서 웹 전용 Route 파일을 route.ts가 아니라 route.web.ts로 변경했다.
+- 일반 웹 빌드의 pageExtensions에는 web.ts가 포함된다.
+- DESKTOP_BUILD=1일 때는 pageExtensions에서 web.ts를 제외한다.
+- 이 방식으로 웹 API는 유지하면서 데스크톱 정적 빌드에는 서버 API가 포함되지 않는다.
+- 관련 파일:
+  - next.config.mjs
+  - app/api/analytics/route.web.ts
+  - app/api/health/route.web.ts
+
+1-5. 데스크톱 런타임과 인터넷 연결
+
+- PDF 합치기: 로컬 처리, 인터넷 불필요
+- PDF 나누기: 로컬 처리, 인터넷 불필요
+- 페이지 순서 변경·회전·삭제: 로컬 처리, 인터넷 불필요
+- PDF → JPG/PNG: 로컬 처리, 인터넷 불필요
+- JPG/PNG → PDF: 로컬 처리, 인터넷 불필요
+- PDF 다시 저장: 로컬 처리, 인터넷 불필요
+- 설치 파일 다운로드와 향후 업데이트 확인에는 인터넷이 필요할 수 있다.
+- 데스크톱 앱에는 Next.js 분석 API가 없으므로 lib/analytics.ts가 Tauri 런타임을 감지하면 서버 전송을 건너뛴다.
+- 분석 이벤트 전송 여부는 PDF 처리 성공 여부에 영향을 주지 않는다.
+
+1-6. 데스크톱 보안 경계
+
+- Tauri 창은 번들에 포함된 로컬 out 자산만 로드한다.
+- 원격 PDF 처리 서버나 원격 웹 UI를 로드하지 않는다.
+- 외부 http, https, mailto 링크는 components/ExternalLinkGuard.tsx가 가로채 시스템 기본 브라우저 또는 이메일 앱에서 연다.
+- Tauri opener 플러그인은 opener:allow-open-url 권한만 사용한다.
+- Tauri CSP는 기본적으로 self, asset, blob, data 및 IPC에 필요한 범위만 허용한다.
+- NEXT_PUBLIC_ 환경 변수는 데스크톱 번들에 공개될 수 있으므로 비밀 값, 토큰, 서명 인증서, API 비밀 키를 넣으면 안 된다.
+- Windows 코드 서명 인증서는 프런트엔드 환경 변수가 아닌 CI 또는 안전한 서명 환경에서 관리해야 한다.
+
+======================================================================
+2. 완료된 주요 구현과 파일 위치
+======================================================================
+
+2-1. npm 스크립트와 의존성
+
+파일: package.json, package-lock.json
+
+추가된 스크립트:
+
+- npm run desktop:dev
+  - tauri dev 실행
+  - Next.js 개발 서버를 시작하고 Tauri WebView를 연결한다.
+- npm run desktop:frontend
+  - DESKTOP_BUILD=1로 Next.js 정적 내보내기를 생성한다.
+  - 출력: out
+- npm run desktop:build
+  - tauri build 실행
+  - 정적 프런트엔드를 만든 뒤 Windows NSIS/MSI 번들을 생성한다.
+
+추가된 패키지:
+
+- @tauri-apps/api
+- @tauri-apps/cli
+- @tauri-apps/plugin-opener
+- cross-env
+
+2-2. Tauri 프로젝트
+
+주요 파일:
+
+- src-tauri/Cargo.toml
+  - Rust 패키지와 tauri, tauri-build, tauri-plugin-opener 의존성 정의
+- src-tauri/build.rs
+  - Tauri 빌드 스크립트
+- src-tauri/src/main.rs
+  - 데스크톱 실행 진입점
+- src-tauri/src/lib.rs
+  - Tauri Builder와 opener 플러그인 초기화
+- src-tauri/capabilities/default.json
+  - main 창에 core 기본 권한과 외부 URL 열기 권한만 부여
+- src-tauri/tauri.conf.json
+  - 제품명: PDF Toolkit
+  - 앱 식별자: kr.pdftoolkit.desktop
+  - 기본 창 크기: 1280 × 820
+  - 최소 창 크기: 960 × 640
+  - 창 크기 변경 가능, 중앙 배치
+  - 번들 대상: NSIS, MSI
+  - 프런트엔드 디렉터리: ../out
+  - 앱 버전은 ../package.json의 version을 읽는다.
+- src-tauri/icons/**
+  - Windows 및 Tauri 번들용 생성 아이콘
+- assets/app-icon.svg
+  - 기존 파란색 브랜드 마크와 문서 이미지를 기반으로 만든 원본 아이콘
+
+2-3. 버전 관리
+
+- 단일 제품 버전 원본: package.json의 version
+- 현재 값: 0.1.0
+- config/site.ts의 APP_VERSION은 package.json에서 읽는다.
+- src-tauri/tauri.conf.json도 ../package.json 경로에서 번들 버전을 읽는다.
+- Rust crate 자체의 version 필드는 Cargo 규칙상 src-tauri/Cargo.toml에도 존재한다.
+- 공개 릴리스 전에 package.json과 Cargo.toml의 버전이 같은지 반드시 확인한다.
+
+2-4. 다운로드 페이지
+
+파일: app/download/page.tsx
+스타일: app/globals.css
+
+포함 내용:
+
+- 제목: PDF Toolkit for Desktop
+- 현재 앱 버전 표시
+- 데스크톱 버전 설명
+- Windows, macOS, Linux 플랫폼 카드
+- Windows:
+  - NEXT_PUBLIC_WINDOWS_INSTALLER_URL이 없으면 다운로드 버튼을 만들지 않는다.
+  - "Windows build in testing"을 표시한다.
+  - 실제 HTTPS Release 자산 URL이 설정된 경우에만 Available과 다운로드 링크를 표시한다.
+- macOS: Coming Soon
+- Linux: Coming Soon
+- 시스템 요구사항
+- Windows 설치 절차
+- 인터넷 연결 필요 여부
+- /changelog 링크
+- /privacy 링크
+
+현재 NEXT_PUBLIC_WINDOWS_INSTALLER_URL은 설정하지 않았다. 따라서 가짜 다운로드 링크가 없다.
+
+2-5. 변경 내역과 릴리스 문서
+
+- app/changelog/page.tsx
+  - 웹에서 버전 0.1.0 변경 내역 표시
+- CHANGELOG.md
+  - 저장소용 변경 내역
+- docs/DESKTOP.md
+  - 웹 실행법
+  - 데스크톱 개발 실행법
+  - Windows 설치 프로그램 빌드법
+  - 설치 파일 출력 경로
+  - 버전 변경법
+  - GitHub Release 연결법
+  - 기능별 로컬 처리 호환성
+  - PWA 상태
+- docs/RELEASE_CHECKLIST.md
+  - 버전, 테스트, 설치/제거, 코드 서명, 체크섬, GitHub Release, 다운로드 URL 점검 목록
+
+2-6. 탐색 구조
+
+파일: components/AppShell.tsx
+
+- 사이드바 유틸리티 영역에 "데스크톱 앱" 링크 추가
+- 푸터에 "데스크톱 앱" 링크 추가
+- PDF 도구보다 더 prominent하게 만들지 않았다.
+- app/sitemap.ts에 /download와 /changelog 추가
+
+2-7. 외부 링크 처리
+
+파일: components/ExternalLinkGuard.tsx, app/layout.tsx
+
+- 루트 layout에서 한 번만 마운트한다.
+- Tauri 런타임에서 외부 http/https 및 mailto 링크 클릭을 감지한다.
+- @tauri-apps/plugin-opener의 openUrl을 사용해 시스템 앱에서 연다.
+- 같은 origin의 Next.js 내부 링크는 그대로 둔다.
+- 플러그인 실행에 실패할 때는 noopener/noreferrer 옵션으로 새 창 열기를 시도한다.
+
+2-8. 오류 처리 개선
+
+파일: app/tools/[tool]/tool-workspace.tsx, components/FileDropzone.tsx
+
+기존 또는 개선된 처리:
+
+- 지원하지 않는 파일 형식: 선택에서 제외하고 오류 표시
+- 개별 파일 20MB 초과: 업로드 전 차단
+- 전체 파일 50MB 초과: 업로드 전 차단
+- 도구별 파일 수 초과: 업로드 전 차단
+- 잘못되거나 손상된 PDF: 유효한 PDF를 읽을 수 없다는 안내
+- 암호화/비밀번호 PDF: 암호 보호를 해제하라는 안내
+- 메모리 부족: 더 작은 파일이나 페이지 수를 사용하라는 안내
+- 일반 처리 실패: 원본 확인 후 재시도 안내
+- 재시도 버튼: 다시 실행 가능한 상태에서 제공
+- 인터넷/서버 실패:
+  - PDF 처리에는 서버가 사용되지 않아 해당 실패가 PDF 작업을 중단시키지 않는다.
+  - 분석 이벤트 전송 실패는 무시한다.
+  - Tauri에서는 분석 API 요청 자체를 하지 않는다.
+
+2-9. 개인정보 정책 정합성
+
+파일: app/privacy/page.tsx, lib/analytics.ts
+
+- 웹 이벤트는 이벤트명, 도구 ID, 발생 시각만 서버 로그에 기록한다.
+- 파일 이름, 파일 내용, 파일 크기, 오류 원문, 사용자 식별자는 분석 payload에 넣지 않는다.
+- 데스크톱 앱은 제품 이벤트를 서버로 전송하지 않는다고 정책에 명시했다.
+- PDF 파일은 서버 메모리, 임시 디스크, 데이터베이스에 저장하지 않는다.
+
+2-10. PWA 판단
+
+- app/manifest.ts와 appleWebApp metadata는 존재한다.
+- 하지만 서비스 워커와 완전한 웹 앱 설치 아이콘 구성이 없다.
+- 현재 상태를 안정적인 PWA 설치 지원으로 간주하지 않았다.
+- /download에 PWA 설치 버튼을 추가하지 않았다.
+- 향후 독립 작업으로 남겼다.
+
+2-11. 현재까지 성공한 검증
+
+- npm install: 성공
+- npm run lint: 성공
+- npm exec tsc -- --noEmit: 성공
+- npm run build: 성공
+  - 웹 경로 20개
+  - /api/analytics와 /api/health 포함
+- npm run desktop:frontend: 성공
+  - 정적 경로 19개
+  - 웹 전용 API Route 미포함
+  - out 디렉터리 생성
+- 정적 산출물 확인:
+  - out/index.html 존재
+  - out/download/index.html 존재
+  - out/changelog/index.html 존재
+  - 여섯 도구의 index.html 모두 존재
+  - "Windows build in testing" 문구 존재
+  - 실제 URL이 없을 때 "Windows용 다운로드" 링크 부재
+- git diff --check: 오류 없음
+- 저장소에 자동화 테스트 스크립트는 없다.
+
+======================================================================
+6. 공개 배포 전 반드시 남은 작업
+======================================================================
+
+6-1. Rust 툴체인 설치
+
+현재 환경 진단:
+
+- Windows: 사용 가능
+- WebView2: 설치됨
+- Visual Studio Community 2022 / MSVC: 설치됨
+- rustc: 없음
+- cargo: 없음
+- rustup: 없음
+
+권장 설치:
+
+1. https://rustup.rs/에서 rustup-init.exe를 받는다.
+2. Windows MSVC 기본 stable 툴체인을 설치한다.
+3. 새 PowerShell을 연다.
+4. 다음 명령으로 확인한다.
+
+rustup --version
+rustc --version
+cargo --version
+
+완료 조건:
+
+- 세 명령이 모두 버전을 출력한다.
+- rustc host가 x86_64-pc-windows-msvc 계열인지 확인한다.
+
+6-2. Tauri 개발 빌드 실행
+
+명령어:
+
+npm run desktop:dev
+
+확인할 내용:
+
+- PDF Toolkit 창이 1280 × 820 기본 크기로 열린다.
+- 960 × 640보다 작게 줄어들지 않는다.
+- 홈, 여섯 도구, 다운로드, 변경 내역, 개인정보, 이용약관, 문의 페이지 탐색이 된다.
+- 새 창이나 내부 404 없이 Next.js 링크가 동작한다.
+- 외부 HTTPS 링크와 mailto 링크가 앱 WebView 안이 아니라 시스템 기본 앱에서 열린다.
+- 개발자 콘솔에 CSP, worker, asset 경로 오류가 없다.
+
+6-3. 여섯 PDF 기능 실제 회귀 테스트
+
+각 테스트에는 민감정보가 없는 작은 샘플 파일을 사용한다.
+
+PDF 합치기:
+
+- PDF 2개 이상 선택
+- 파일 순서 변경
+- 병합 실행
+- 결과 PDF 페이지 순서와 페이지 수 확인
+- 다운로드 파일명 merged.pdf 확인
+
+PDF 나누기:
+
+- 모든 페이지 개별 분리
+- 선택 페이지 추출
+- 범위별 분리
+- ZIP 내부 파일 수와 각 PDF 페이지 확인
+
+PDF 페이지 정리:
+
+- 페이지 순서 변경
+- 90도 회전
+- 페이지 삭제
+- 모든 페이지 삭제가 차단되는지 확인
+- organized.pdf 결과 확인
+
+PDF → 이미지:
+
+- PNG와 JPG 모두 테스트
+- 일부 페이지 범위와 전체 페이지 테스트
+- 품질 옵션 테스트
+- ZIP 내부 이미지 파일과 페이지 수 확인
+
+이미지 → PDF:
+
+- JPG와 PNG 혼합 선택
+- 이미지 순서 변경
+- 자동, A4, Letter 페이지 크기 확인
+- 세로/가로 및 여백 옵션 확인
+
+PDF 다시 저장:
+
+- 정상 PDF 재저장 확인
+- 손상 PDF의 실패 메시지 확인
+- 모든 손상 파일을 복구한다고 오해할 표현이 없는지 확인
+
+공통 테스트:
+
+- 지원하지 않는 확장자
+- 20MB 초과 개별 파일
+- 50MB 초과 전체 파일
+- 도구별 최대 파일 수 초과
+- 암호화 PDF
+- 처리 중 재실행 방지
+- 결과 다운로드
+- 다른 파일 처리하기
+- 앱 재시작 후 이전 파일이 남지 않는지 확인
+- 인터넷을 끈 상태에서 여섯 기능이 실행되는지 확인
+
+6-4. Windows 프로덕션 설치 파일 생성
+
+명령어:
+
+npm run desktop:build
+
+예상 출력:
+
+- src-tauri/target/release/bundle/nsis/
+- src-tauri/target/release/bundle/msi/
+
+현재는 Rust/Cargo가 없어 다음 오류로 중단된다.
+
+failed to run cargo metadata --no-deps --format-version 1: program not found
+
+완료 조건:
+
+- NSIS 또는 MSI 설치 파일이 실제로 생성된다.
+- 빌드 로그에 Rust, Tauri, WebView 관련 오류가 없다.
+- 생성된 파일 이름과 버전이 0.1.0과 일치한다.
+
+6-5. 깨끗한 Windows 환경에서 설치 검증
+
+- Windows 10 64비트에서 설치, 실행, 제거
+- Windows 11 64비트에서 설치, 실행, 제거
+- 관리자 권한이 없는 일반 사용자 설치 가능 여부 확인
+- WebView2가 없는 환경에서 설치 프로그램의 동작 확인
+- 시작 메뉴와 프로그램 제거 목록 표시 확인
+- 기존 버전 위에 새 버전을 설치하는 업데이트 경로 확인
+- 제거 후 사용자 PDF 파일이나 불필요한 앱 데이터가 삭제되지 않는지 확인
+
+6-6. 코드 서명과 배포 보안
+
+- 공개 배포용 Windows 코드 서명 인증서를 준비한다.
+- 인증서나 비밀번호를 저장소, package.json, NEXT_PUBLIC_ 환경 변수에 넣지 않는다.
+- CI secret 또는 별도의 안전한 서명 환경을 사용한다.
+- 서명된 실행 파일의 게시자 이름과 서명 유효성을 Windows에서 확인한다.
+- 설치 파일에 악성 코드 검사를 수행한다.
+- 다음 명령 등으로 SHA-256 체크섬을 만든다.
+
+Get-FileHash -Algorithm SHA256 <installer-path>
+
+6-7. GitHub Release 생성
+
+- package.json과 src-tauri/Cargo.toml 버전을 맞춘다.
+- CHANGELOG.md와 /changelog를 최종 수정한다.
+- v0.1.0 Git 태그를 만든다.
+- GitHub Release를 만든다.
+- 검증된 NSIS 또는 MSI 설치 파일을 첨부한다.
+- SHA-256 체크섬 파일을 첨부한다.
+- 실제로 완료한 기능과 알려진 제한만 Release Notes에 쓴다.
+- macOS와 Linux를 지원한다고 쓰지 않는다.
+- 오프라인 지원은 실제 인터넷 차단 테스트 통과 후에만 명시한다.
+
+6-8. 실제 다운로드 URL 연결
+
+- GitHub Release에 첨부된 설치 파일의 직접 HTTPS URL을 확보한다.
+- 웹 배포 환경 변수에 다음 값을 설정한다.
+
+NEXT_PUBLIC_WINDOWS_INSTALLER_URL=https://github.com/<owner>/<repo>/releases/download/v0.1.0/<installer-file>
+
+- 웹앱을 다시 빌드하고 배포한다.
+- /download에서 Windows 카드가 Available로 바뀌는지 확인한다.
+- 다운로드 버튼이 정확한 GitHub Release 자산을 가리키는지 확인한다.
+- 버튼을 클릭해 실제 설치 파일 다운로드가 시작되는지 확인한다.
+- 잘못된 URL이나 HTML 페이지가 다운로드되지 않는지 확인한다.
+- URL 검증 전에는 환경 변수를 설정하지 않는다.
+
+6-9. 공개 전 최종 품질 검사
+
+다음 명령을 모두 다시 실행한다.
+
+npm ci
+npm run lint
+npm exec tsc -- --noEmit
+npm run build
+npm run desktop:frontend
+npm run desktop:build
+
+추가 완료 조건:
+
+- 웹앱 기존 PDF 기능 회귀 없음
+- 데스크톱 앱 여섯 기능 테스트 완료
+- /privacy 내용이 실제 분석 및 파일 처리 코드와 일치
+- 설치 프로그램 URL과 버전 일치
+- GitHub Release 파일과 체크섬 일치
+- docs/RELEASE_CHECKLIST.md의 모든 항목 완료
+
+======================================================================
+7. 현재 위험, 제한 및 대응 방안
+======================================================================
+
+7-1. Windows 네이티브 빌드 미완료
+
+현황:
+
+- 데스크톱 정적 프런트엔드는 성공했다.
+- Tauri Rust 바이너리와 Windows 설치 파일은 생성되지 않았다.
+- 원인은 Rust/Cargo/rustup 부재다.
+
+영향:
+
+- 현재 상태를 공개 Windows 지원 또는 Available로 표시하면 안 된다.
+- 실제 WebView2에서 PDF 처리 기능이 동작한다고 최종 확정할 수 없다.
+
+대응:
+
+- 6-1부터 6-5까지 완료한다.
+- 그전에는 /download의 "Windows build in testing" 상태를 유지한다.
+
+7-2. 실제 데스크톱 회귀 테스트 미완료
+
+현황:
+
+- 코드 구조상 여섯 기능은 로컬 WebView에서 동작하도록 구성됐다.
+- 정적 HTML/JS 산출물과 모든 도구 경로는 생성됐다.
+- 하지만 Rust 부재로 Tauri 창에서 실제 파일을 선택하고 처리하는 테스트는 실행하지 못했다.
+
+영향:
+
+- WebView2의 파일 선택, Blob 다운로드, PDF.js worker, Canvas 렌더링 또는 CSP 관련 런타임 차이가 남아 있을 수 있다.
+
+대응:
+
+- Tauri dev에서 모든 기능을 실제 샘플로 테스트한다.
+- 개발자 콘솔에서 worker-src, asset URL, blob URL 오류를 확인한다.
+- 실패가 있으면 CSP 범위를 필요한 출처만 최소한으로 조정한다.
+
+7-3. 암호화·손상 PDF 제한
+
+현황:
+
+- pdf-lib와 pdfjs-dist가 읽지 못하는 암호화 또는 심하게 손상된 PDF가 존재한다.
+- PDF 다시 저장 기능은 모든 손상 파일을 복구하는 도구가 아니다.
+
+영향:
+
+- 사용자가 복구 보장으로 오해할 수 있다.
+
+대응:
+
+- 암호화 파일은 암호 보호를 해제하라는 오류를 표시한다.
+- 손상 파일은 유효한 PDF인지 확인하라는 오류를 표시한다.
+- UI와 변경 내역에서 복구를 보장하지 않는다.
+
+7-4. 메모리 사용량
+
+현황:
+
+- 파일은 서버가 아니라 앱 WebView 메모리에서 처리한다.
+- PDF → 이미지 변환은 페이지별 Canvas와 ZIP 데이터를 만들기 때문에 큰 문서에서 메모리를 많이 사용한다.
+- 현재 제한은 개별 파일 20MB, 작업 전체 50MB다.
+
+영향:
+
+- 페이지 수, 해상도, 이미지 내용과 기기 RAM에 따라 제한 이내 파일도 실패할 수 있다.
+
+대응:
+
+- 메모리 부족 오류를 친절하게 표시한다.
+- 릴리스 테스트에서 저사양 4GB RAM 환경과 큰 샘플 PDF를 확인한다.
+- 향후 페이지별 스트리밍 또는 순차 ZIP 기록을 검토한다.
+- 검증 없이 파일 한도를 높이지 않는다.
+
+7-5. npm audit의 sharp 고위험 advisory
+
+현황:
+
+- npm audit --omit=dev에서 sharp/libvips 관련 high severity 취약점 2건이 보고됐다.
+- 관련 advisory: CVE-2026-33327, CVE-2026-33328, CVE-2026-35590, CVE-2026-35591 묶음
+- sharp는 Next.js 의존성 경로에서 들어온다.
+- 현재 앱 코드는 next/image를 사용하지 않는다.
+- npm audit fix --force는 Next.js 14.2.35로 강제 변경하는 결과를 제안해 적용하지 않았다.
+
+영향:
+
+- 직접 사용하지 않더라도 프로덕션 의존성 감사가 깨끗하지 않다.
+- 잘못된 강제 수정은 Next.js 15 앱의 회귀를 만들 수 있다.
+
+대응:
+
+- npm audit fix --force를 그대로 실행하지 않는다.
+- Next.js 또는 sharp의 호환 가능한 패치 릴리스를 확인한다.
+- 수정 버전으로 별도 브랜치에서 업데이트 후 lint, 타입, 웹 빌드, PDF 기능을 재검증한다.
+- 웹 배포에서 이미지 최적화 엔드포인트를 사용하지 않는 현 상태도 확인한다.
+
+7-6. 코드 서명 부재
+
+현황:
+
+- Windows 설치 파일이 아직 없고 코드 서명도 구성하지 않았다.
+
+영향:
+
+- 서명되지 않은 설치 파일은 Windows SmartScreen 경고를 유발할 수 있다.
+- 사용자가 앱의 게시자를 신뢰하기 어렵다.
+
+대응:
+
+- 공개 Release 전에 신뢰할 수 있는 인증서로 설치 파일에 서명한다.
+- 서명 인증서는 저장소와 데스크톱 번들에 포함하지 않는다.
+- 서명된 파일의 해시와 서명을 Release 전에 다시 검증한다.
+
+7-7. 자동 업데이트 미구현
+
+현황:
+
+- 현재는 설치 파일 빌드와 수동 GitHub Release 연결만 준비했다.
+- Tauri updater는 구성하지 않았다.
+
+영향:
+
+- 첫 공개 버전 이후 사용자는 새 설치 파일을 직접 받아야 한다.
+
+대응:
+
+- Day 3 범위에서는 자동 업데이트를 추가하지 않는다.
+- 첫 설치 파일과 수동 업데이트 흐름을 안정화한 다음 별도 작업으로 Tauri updater, 서명 키 관리, 롤백 정책을 설계한다.
+
+7-8. PWA는 완전한 대체 수단이 아님
+
+현황:
+
+- manifest는 있지만 서비스 워커와 완전한 아이콘 구성이 없다.
+- /download에는 PWA 설치 버튼이 없다.
+
+영향:
+
+- 브라우저별 설치 가능 여부가 일관적이지 않다.
+- PWA를 Windows 네이티브 앱과 동일하게 안내하면 안 된다.
+
+대응:
+
+- PWA가 필요하면 별도 작업에서 service worker, 캐시 정책, 아이콘, 업데이트 동작, 오프라인 테스트를 구현한다.
+- PWA와 Tauri Windows 앱을 UI에서 명확히 구분한다.
+
+7-9. 분석 이벤트 차이
+
+현황:
+
+- 웹앱은 /api/analytics로 최소 제품 이벤트를 보낸다.
+- 데스크톱 앱은 정적 번들이므로 서버 이벤트를 보내지 않는다.
+
+영향:
+
+- 웹과 데스크톱 사용량을 동일한 이벤트 데이터로 비교할 수 없다.
+
+대응:
+
+- 현재 개인정보 우선 범위에서는 데스크톱 전송 비활성화를 유지한다.
+- 향후 데스크톱 분석이 필요하면 명시적 정책, opt-out, 최소 payload, HTTPS endpoint, 실패 격리 방식을 먼저 설계한다.
+- 파일 이름, 파일 내용, 파일 크기, 오류 원문, 개인 식별자를 수집하지 않는다.
+
+7-10. 공개 지원 범위
+
+현황:
+
+- Windows를 목표로 구성했지만 실제 설치 파일 검증 전이다.
+- macOS와 Linux 빌드는 존재하지 않는다.
+
+금지되는 표현:
+
+- Windows Available: 실제 검증된 설치 파일 URL이 없을 때 사용 금지
+- macOS 지원: 사용 금지
+- Linux 지원: 사용 금지
+- 완전한 오프라인 지원: 인터넷 차단 상태의 실제 Tauri 테스트 전까지 사용 금지
+- 100% 안전, 완전한 보안, 모든 PDF 복구: 사용 금지
+
+허용되는 현재 표현:
+
+- Windows build in testing
+- macOS Coming Soon
+- Linux Coming Soon
+- PDF 파일은 현재 구현상 기기 안에서 처리됨
+- 공개 설치 파일은 아직 제공하지 않음
+
+======================================================================
+다음 작업자가 가장 먼저 할 일
+======================================================================
+
+1. Rust stable MSVC 툴체인을 설치한다.
+2. rustup, rustc, cargo 버전을 확인한다.
+3. npm run desktop:dev를 실행한다.
+4. 여섯 PDF 기능을 실제 Windows WebView에서 테스트한다.
+5. npm run desktop:build로 NSIS/MSI를 생성한다.
+6. 깨끗한 Windows 10·11 환경에서 설치·실행·제거를 검증한다.
+7. 코드 서명, 체크섬, GitHub Release를 준비한다.
+8. 실제 Release 자산 URL만 NEXT_PUBLIC_WINDOWS_INSTALLER_URL에 설정한다.
+9. /download가 Available과 실제 다운로드 버튼을 올바르게 표시하는지 확인한다.
+10. npm audit의 sharp 문제를 호환 가능한 패치 버전으로 별도 해결한다.
+
+======================================================================
+2026-07-22 Windows 데스크톱 검증 업데이트
+======================================================================
+
+- Rust stable MSVC 툴체인 설치 완료: rustup 1.29.0, rustc/cargo 1.97.1
+- npm run desktop:dev 실행 성공
+- 실제 Tauri WebView2에서 여섯 PDF 기능 처리 및 다운로드 검증 완료
+- 생성 결과의 페이지 수, 회전, ZIP 구성, 이미지 형식과 렌더링 검증 완료
+- 제품 기능 오류는 발견되지 않았음
+- 빌드 산출물을 ESLint가 검사하던 구성 오류를 발견해 out 및 src-tauri/target 제외 설정으로 수정했음
+- npm run desktop:build 성공
+- NSIS와 MSI 설치 파일 생성 및 SHA-256 기록 완료
+- NSIS 설치, 설치된 앱 실행, 실제 WebView 첫 화면 확인, 제거까지 성공
+- 공개 배포용 코드 서명과 GitHub Release URL 연결은 아직 하지 않았음
+- 상세 증거는 루트의 DESKTOP_TEST_RESULTS.txt 참조
